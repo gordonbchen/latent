@@ -16,15 +16,27 @@ from torchvision.transforms import v2
 @dataclass
 class HyperParams(CLIParams):
     batch_size: int = 128
-    sparsity_coeff: float = 0.1
-    latent_dim: int = 8
+
     epochs: int = 64
     lr: float = 1e-3
+
+    latent_dim: int = 8
+    sparsity_coeff: float = 0.1
+
+    use_kl_sparsity_loss: bool = True
+    target_sparsity: float = 0.05
+
     output_dir: str = "outputs/autoencoder/test"
 
 
 class AutoEncoder(nn.Module):
-    def __init__(self, latent_dim: int, sparsity_coeff: float) -> None:
+    def __init__(
+        self,
+        latent_dim: int,
+        sparsity_coeff: float,
+        use_kl_sparsity_loss: bool,
+        target_sparsity: float | None = None,
+    ) -> None:
         super().__init__()
         self.encoder = nn.Sequential(
             nn.Flatten(),
@@ -41,24 +53,45 @@ class AutoEncoder(nn.Module):
             nn.ReLU(),
             nn.LazyLinear(28 * 28),
         )
+
         self.sparsity_coeff = sparsity_coeff
 
-    def forward(self, xb: torch.Tensor) -> tuple[torch.Tensor]:
+        self.use_kl_sparsity_loss = use_kl_sparsity_loss
+        self.target_sparsity = target_sparsity
+
+    def forward(
+        self, xb: torch.Tensor
+    ) -> tuple[torch.Tensor, torch.Tensor, dict[str, torch.Tensor]]:
         z = self.encoder(xb)
         recon = self.decoder(z).reshape(xb.shape)
 
         recon_loss = (0.5 * ((recon - xb) ** 2.0)).mean()
+        if self.use_kl_sparsity_loss:
+            sparsity_loss = self.kl_sparsity_loss(z)
+        else:
+            sparsity_loss = self.l1_sparsity_loss(z)
+        loss = recon_loss + (self.sparsity_coeff * sparsity_loss)
 
-        sparsity_loss = self.sparsity_coeff * z.abs().mean()
-        loss = recon_loss + sparsity_loss
-        return recon, loss, recon_loss, sparsity_loss
+        metrics = {"recon_loss": recon_loss.item(), "sparsity_loss": sparsity_loss.item()}
+        return recon, loss, metrics
+
+    def l1_sparsity_loss(self, z: torch.Tensor) -> None:
+        return z.abs().mean()
+
+    def kl_sparsity_loss(self, z: torch.Tensor) -> None:
+        l1 = torch.clamp(z.abs().mean(dim=0), min=1e-6, max=1 - 1e-6)
+        kl1 = self.target_sparsity * torch.log(self.target_sparsity / l1)
+        kl2 = (1 - self.target_sparsity) * torch.log((1 - self.target_sparsity) / (1 - l1))
+        return (kl1 + kl2).mean()
 
 
 def get_mnist_data(batch_size: int) -> tuple[MNIST, DataLoader]:
     transform = v2.Compose([v2.ToImage(), v2.ToDtype(torch.float32, scale=True)])
     train_ds = MNIST("data", train=True, download=True, transform=transform)
 
-    train_dl = DataLoader(train_ds, batch_size=batch_size, shuffle=True)
+    train_dl = DataLoader(
+        train_ds, batch_size=batch_size, shuffle=True, num_workers=2, pin_memory=True
+    )
     return train_ds, train_dl
 
 
@@ -76,23 +109,17 @@ def train(
     for epoch in range(epochs):
         for xb, _ in train_dl:
             xb = xb.to("cuda")
-            recon, loss, recon_loss, sparsity_loss = autoencoder(xb)
+            recon, loss, metrics = autoencoder(xb)
 
             optim.zero_grad()
             loss.backward()
             optim.step()
 
         # Logging.
-        loss_dict = {
-            "loss": loss.item(),
-            "recon": recon_loss.item(),
-            "sparsity": sparsity_loss.item(),
-        }
-        writer.add_scalars("loss", loss_dict, epoch)
-        recon_images = (
-            torch.cat((xb[:n_plot_images], recon[:n_plot_images]), dim=-1).detach().to("cpu")
-        )
-        writer.add_images("recon", recon_images, epoch)
+        writer.add_scalar("loss", loss.item(), epoch)
+        writer.add_scalars("metrics", metrics, epoch)
+        recon_images = torch.cat((xb[:n_plot_images], recon[:n_plot_images]), dim=-1)
+        writer.add_images("recon", recon_images.detach().to("cpu"), epoch)
         print(f"Epoch={epoch}: loss={loss.item()}")
 
     writer.close()
@@ -155,7 +182,9 @@ if __name__ == "__main__":
     HP = HyperParams()
 
     train_ds, train_dl = get_mnist_data(HP.batch_size)
-    autoencoder = AutoEncoder(HP.latent_dim, HP.sparsity_coeff).to("cuda")
+    autoencoder = AutoEncoder(
+        HP.latent_dim, HP.sparsity_coeff, HP.use_kl_sparsity_loss, HP.target_sparsity
+    ).to("cuda")
     optim = Adam(autoencoder.parameters(), lr=HP.lr)
 
     train(autoencoder, train_dl, optim, HP.epochs, HP.output_dir)
