@@ -7,10 +7,9 @@ from cli_params import CLIParams
 from sklearn.decomposition import PCA
 from torch import nn
 from torch.optim import Adam, Optimizer
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, Dataset
 from torch.utils.tensorboard import SummaryWriter
 from torchvision.datasets import MNIST
-from torchvision.transforms import v2
 
 
 class SparsityType:
@@ -34,6 +33,9 @@ class HyperParams(CLIParams):
 
     contractive: bool = False
     contractive_coeff: float = 0.1
+
+    noise: bool = False
+    noise_coeff: float = 0.5
 
     output_dir: str = "outputs/autoencoder/test"
 
@@ -60,7 +62,7 @@ class AutoEncoder(nn.Module):
         self.HP = HP
 
     def forward(
-        self, xb: torch.Tensor
+        self, xb: torch.Tensor, yb: torch.Tensor
     ) -> tuple[torch.Tensor, torch.Tensor, dict[str, torch.Tensor]]:
         if self.HP.contractive:
             xb.requires_grad = True
@@ -68,7 +70,7 @@ class AutoEncoder(nn.Module):
         z = self.encoder(xb)
         recon = self.decoder(z).reshape(xb.shape)
 
-        recon_loss = (0.5 * ((recon - xb) ** 2.0)).mean()
+        recon_loss = (0.5 * ((recon - yb) ** 2.0)).mean()
         sparsity_loss = self.calc_sparsity_loss(z)
         contractive_loss = self.contractive_loss(z, xb) if self.HP.contractive else 0.0
 
@@ -111,12 +113,32 @@ class AutoEncoder(nn.Module):
         return (jacobian**2).sum() / xb.shape[0]
 
 
-def get_mnist_data(batch_size: int) -> tuple[MNIST, DataLoader]:
-    transform = v2.Compose([v2.ToImage(), v2.ToDtype(torch.float32, scale=True)])
-    train_ds = MNIST("data", train=True, download=True, transform=transform)
+class MNISTDataset(Dataset):
+    def __init__(self, noise: bool, noise_coeff: float | None = None) -> None:
+        self.noise = noise
+        self.noise_coeff = noise_coeff
 
+        mnist_ds = MNIST("data", train=True, download=True)
+        self.data = mnist_ds.data.to(dtype=torch.float32).unsqueeze(1) / 255.0
+        self.targets = mnist_ds.targets
+
+    def __len__(self) -> int:
+        return len(self.data)
+
+    def __getitem__(self, idx: int) -> tuple[torch.Tensor, torch.Tensor]:
+        x = self.data[idx]
+        if self.noise:
+            noise = torch.randn_like(x) * self.noise_coeff
+            noisy = torch.clamp(x + noise, min=0.0, max=1.0)
+            return noisy, x
+        else:
+            return x, x.clone()
+
+
+def get_mnist_data(HP: HyperParams) -> tuple[Dataset, DataLoader]:
+    train_ds = MNISTDataset(HP.noise, HP.noise_coeff)
     train_dl = DataLoader(
-        train_ds, batch_size=batch_size, shuffle=True, num_workers=2, pin_memory=True
+        train_ds, batch_size=HP.batch_size, shuffle=True, num_workers=2, pin_memory=True
     )
     return train_ds, train_dl
 
@@ -133,9 +155,9 @@ def train(
     writer = SummaryWriter(output_dir)
 
     for epoch in range(epochs):
-        for xb, _ in train_dl:
-            xb = xb.to("cuda")
-            recon, loss, metrics = autoencoder(xb)
+        for xb, yb in train_dl:
+            xb, yb = xb.to("cuda"), yb.to("cuda")
+            recon, loss, metrics = autoencoder(xb, yb)
 
             optim.zero_grad()
             loss.backward()
@@ -153,11 +175,11 @@ def train(
 
 @torch.no_grad()
 def show_latent_space(
-    autoencoder: AutoEncoder, train_ds: MNIST, output_dir: Path, n_samples: int = 2048
+    autoencoder: AutoEncoder, train_ds: Dataset, output_dir: Path, n_samples: int = 2048
 ) -> None:
     # Calculate latents and the PCA into 2D.
     idx = torch.randint(0, len(train_ds), size=(n_samples,))
-    images = train_ds.data[idx].to("cuda", dtype=torch.float32) / 255.0
+    images = train_ds.data[idx].to("cuda")
     labels = train_ds.targets[idx]
 
     autoencoder.eval()
@@ -207,7 +229,7 @@ def show_latent_space(
 if __name__ == "__main__":
     HP = HyperParams()
 
-    train_ds, train_dl = get_mnist_data(HP.batch_size)
+    train_ds, train_dl = get_mnist_data(HP)
     autoencoder = AutoEncoder(HP).to("cuda")
     optim = Adam(autoencoder.parameters(), lr=HP.lr)
 
