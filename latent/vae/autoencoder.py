@@ -13,6 +13,12 @@ from torchvision.datasets import MNIST
 from torchvision.transforms import v2
 
 
+class SparsityLossType:
+    L1 = "L1"
+    KL = "KL"
+    CONTRACT = "CONTRACT"
+
+
 @dataclass
 class HyperParams(CLIParams):
     batch_size: int = 128
@@ -23,8 +29,8 @@ class HyperParams(CLIParams):
     latent_dim: int = 8
     sparsity_coeff: float = 0.1
 
-    use_kl_sparsity_loss: bool = True
-    target_sparsity: float = 0.05
+    sparsity_loss_type: str = SparsityLossType.CONTRACT
+    target_sparsity: float = 0.05  # Only used for KL sparsity loss.
 
     output_dir: str = "outputs/autoencoder/test"
 
@@ -34,7 +40,7 @@ class AutoEncoder(nn.Module):
         self,
         latent_dim: int,
         sparsity_coeff: float,
-        use_kl_sparsity_loss: bool,
+        sparsity_loss_type: str,
         target_sparsity: float | None = None,
     ) -> None:
         super().__init__()
@@ -56,33 +62,47 @@ class AutoEncoder(nn.Module):
 
         self.sparsity_coeff = sparsity_coeff
 
-        self.use_kl_sparsity_loss = use_kl_sparsity_loss
+        self.sparsity_loss_type = sparsity_loss_type
         self.target_sparsity = target_sparsity
 
     def forward(
         self, xb: torch.Tensor
     ) -> tuple[torch.Tensor, torch.Tensor, dict[str, torch.Tensor]]:
+        if self.sparsity_loss_type == SparsityLossType.CONTRACT:
+            xb.requires_grad = True
+
         z = self.encoder(xb)
         recon = self.decoder(z).reshape(xb.shape)
 
         recon_loss = (0.5 * ((recon - xb) ** 2.0)).mean()
-        if self.use_kl_sparsity_loss:
-            sparsity_loss = self.kl_sparsity_loss(z)
-        else:
-            sparsity_loss = self.l1_sparsity_loss(z)
+
+        match self.sparsity_loss_type:
+            case SparsityLossType.KL:
+                sparsity_loss = self.kl_sparsity_loss(z)
+            case SparsityLossType.L1:
+                sparsity_loss = self.l1_sparsity_loss(z)
+            case SparsityLossType.CONTRACT:
+                sparsity_loss = self.contractive_sparsity_loss(z, xb)
+
         loss = recon_loss + (self.sparsity_coeff * sparsity_loss)
 
         metrics = {"recon_loss": recon_loss.item(), "sparsity_loss": sparsity_loss.item()}
+        if self.sparsity_loss_type != SparsityLossType.L1:
+            metrics["z_l1"] = self.l1_sparsity_loss(z).item()
         return recon, loss, metrics
 
-    def l1_sparsity_loss(self, z: torch.Tensor) -> None:
+    def l1_sparsity_loss(self, z: torch.Tensor) -> torch.Tensor:
         return z.abs().mean()
 
-    def kl_sparsity_loss(self, z: torch.Tensor) -> None:
+    def kl_sparsity_loss(self, z: torch.Tensor) -> torch.Tensor:
         l1 = torch.clamp(z.abs().mean(dim=0), min=1e-6, max=1 - 1e-6)
         kl1 = self.target_sparsity * torch.log(self.target_sparsity / l1)
         kl2 = (1 - self.target_sparsity) * torch.log((1 - self.target_sparsity) / (1 - l1))
         return (kl1 + kl2).mean()
+
+    def contractive_sparsity_loss(self, z: torch.Tensor, xb: torch.Tensor) -> torch.Tensor:
+        jacobian = torch.autograd.grad(outputs=z.sum(), inputs=xb, retain_graph=True)[0]
+        return (jacobian**2).sum() / xb.shape[0]
 
 
 def get_mnist_data(batch_size: int) -> tuple[MNIST, DataLoader]:
@@ -183,7 +203,7 @@ if __name__ == "__main__":
 
     train_ds, train_dl = get_mnist_data(HP.batch_size)
     autoencoder = AutoEncoder(
-        HP.latent_dim, HP.sparsity_coeff, HP.use_kl_sparsity_loss, HP.target_sparsity
+        HP.latent_dim, HP.sparsity_coeff, HP.sparsity_loss_type, HP.target_sparsity
     ).to("cuda")
     optim = Adam(autoencoder.parameters(), lr=HP.lr)
 
