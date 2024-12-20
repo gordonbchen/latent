@@ -13,10 +13,10 @@ from torchvision.datasets import MNIST
 from torchvision.transforms import v2
 
 
-class SparsityLossType:
+class SparsityType:
     L1 = "L1"
     KL = "KL"
-    CONTRACT = "CONTRACT"
+    NONE = "NONE"
 
 
 @dataclass
@@ -27,22 +27,19 @@ class HyperParams(CLIParams):
     lr: float = 1e-3
 
     latent_dim: int = 8
-    sparsity_coeff: float = 0.1
 
-    sparsity_loss_type: str = SparsityLossType.CONTRACT
-    target_sparsity: float = 0.05  # Only used for KL sparsity loss.
+    sparsity_coeff: float = 0.1
+    sparsity_type: str = SparsityType.NONE
+    target_sparsity: float = 0.01  # Only used for KL sparsity loss.
+
+    contractive: bool = False
+    contractive_coeff: float = 0.1
 
     output_dir: str = "outputs/autoencoder/test"
 
 
 class AutoEncoder(nn.Module):
-    def __init__(
-        self,
-        latent_dim: int,
-        sparsity_coeff: float,
-        sparsity_loss_type: str,
-        target_sparsity: float | None = None,
-    ) -> None:
+    def __init__(self, HP: HyperParams) -> None:
         super().__init__()
         self.encoder = nn.Sequential(
             nn.Flatten(),
@@ -50,7 +47,7 @@ class AutoEncoder(nn.Module):
             nn.ReLU(),
             nn.LazyLinear(256),
             nn.ReLU(),
-            nn.LazyLinear(latent_dim),
+            nn.LazyLinear(HP.latent_dim),
         )
         self.decoder = nn.Sequential(
             nn.LazyLinear(256),
@@ -60,47 +57,56 @@ class AutoEncoder(nn.Module):
             nn.LazyLinear(28 * 28),
         )
 
-        self.sparsity_coeff = sparsity_coeff
-
-        self.sparsity_loss_type = sparsity_loss_type
-        self.target_sparsity = target_sparsity
+        self.HP = HP
 
     def forward(
         self, xb: torch.Tensor
     ) -> tuple[torch.Tensor, torch.Tensor, dict[str, torch.Tensor]]:
-        if self.sparsity_loss_type == SparsityLossType.CONTRACT:
+        if self.HP.contractive:
             xb.requires_grad = True
 
         z = self.encoder(xb)
         recon = self.decoder(z).reshape(xb.shape)
 
         recon_loss = (0.5 * ((recon - xb) ** 2.0)).mean()
+        sparsity_loss = self.calc_sparsity_loss(z)
+        contractive_loss = self.contractive_loss(z, xb) if self.HP.contractive else 0.0
 
-        match self.sparsity_loss_type:
-            case SparsityLossType.KL:
-                sparsity_loss = self.kl_sparsity_loss(z)
-            case SparsityLossType.L1:
-                sparsity_loss = self.l1_sparsity_loss(z)
-            case SparsityLossType.CONTRACT:
-                sparsity_loss = self.contractive_sparsity_loss(z, xb)
+        loss = (
+            recon_loss
+            + (self.HP.sparsity_coeff * sparsity_loss)
+            + (self.HP.contractive_coeff * contractive_loss)
+        )
 
-        loss = recon_loss + (self.sparsity_coeff * sparsity_loss)
-
-        metrics = {"recon_loss": recon_loss.item(), "sparsity_loss": sparsity_loss.item()}
-        if self.sparsity_loss_type != SparsityLossType.L1:
+        metrics = {"recon_loss": recon_loss.item()}
+        if self.HP.sparsity_type != SparsityType.NONE:
+            metrics["sparsity_loss"] = sparsity_loss.item()
+        if self.HP.sparsity_type == SparsityType.KL:
             metrics["z_l1"] = self.l1_sparsity_loss(z).item()
+        if self.HP.contractive:
+            metrics["contractive_loss"] = contractive_loss.item()
+
         return recon, loss, metrics
+
+    def calc_sparsity_loss(self, z: torch.Tensor) -> torch.Tensor:
+        match self.HP.sparsity_type:
+            case SparsityType.L1:
+                return self.l1_sparsity_loss(z)
+            case SparsityType.KL:
+                return self.kl_sparsity_loss(z)
+            case _:
+                return 0.0
 
     def l1_sparsity_loss(self, z: torch.Tensor) -> torch.Tensor:
         return z.abs().mean()
 
     def kl_sparsity_loss(self, z: torch.Tensor) -> torch.Tensor:
         l1 = torch.clamp(z.abs().mean(dim=0), min=1e-6, max=1 - 1e-6)
-        kl1 = self.target_sparsity * torch.log(self.target_sparsity / l1)
-        kl2 = (1 - self.target_sparsity) * torch.log((1 - self.target_sparsity) / (1 - l1))
+        kl1 = self.HP.target_sparsity * torch.log(self.HP.target_sparsity / l1)
+        kl2 = (1 - self.HP.target_sparsity) * torch.log((1 - self.HP.target_sparsity) / (1 - l1))
         return (kl1 + kl2).mean()
 
-    def contractive_sparsity_loss(self, z: torch.Tensor, xb: torch.Tensor) -> torch.Tensor:
+    def contractive_loss(self, z: torch.Tensor, xb: torch.Tensor) -> torch.Tensor:
         jacobian = torch.autograd.grad(outputs=z.sum(), inputs=xb, retain_graph=True)[0]
         return (jacobian**2).sum() / xb.shape[0]
 
@@ -202,9 +208,7 @@ if __name__ == "__main__":
     HP = HyperParams()
 
     train_ds, train_dl = get_mnist_data(HP.batch_size)
-    autoencoder = AutoEncoder(
-        HP.latent_dim, HP.sparsity_coeff, HP.sparsity_loss_type, HP.target_sparsity
-    ).to("cuda")
+    autoencoder = AutoEncoder(HP).to("cuda")
     optim = Adam(autoencoder.parameters(), lr=HP.lr)
 
     train(autoencoder, train_dl, optim, HP.epochs, HP.output_dir)
