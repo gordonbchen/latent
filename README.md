@@ -1,2 +1,2 @@
 # latent
-Exploring VAEs, GANs, and Diffusion models.
+Exploring Autoencoders, VAEs, GANs, and Diffusion models.
