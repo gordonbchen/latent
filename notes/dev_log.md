@@ -1,6 +1,7 @@
 12/26/2024
 * Added Bayes' Theorem, ELBO, and Gaussian KL-Div notes for VAE
-* Next: VAE implementation, latent space exploration, $\beta$ factor for disentanglement
+* Impelmented VAE
+* Next: maybe read about some more complex VAEs, or move on to GANs
 
 12/19/2024
 * Added KL Divergence sparsity regularization
