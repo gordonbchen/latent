@@ -182,9 +182,21 @@ $C(G) = -2\log2 + 2 D_{JS}(p_d, p_g)$
 
 Since $D_{JS} \ge 0$ and $D_{JS} = 0 \iff p_d = p_g \ $: minimum $C^* = -2\log2$ when $p_d = p_g$. $G$ is trained to minimize JS-Divergence b/t $p_d$ and $p_g$.  
 
+# [Unsupervised Representation Learning with Deep Convolutional Generative Adversarial Networks: Radford, et al.](https://arxiv.org/pdf/1511.06434)
+Using GANs to build unsupervised image representations, then using parts of the discriminator as a feature extractor for supervised tasks. GAN loss is more expressive than MSE.  
+
+Explore further: model interpretability with CNNs.  
+
+## DCGAN architecture guidlines
+Replace pooling (max pool) with strided convs in the Discriminator and fractionally strided convs (aka transposed convs or misnomer deconvs) in the Generator. Allows the network to learn spatial up/down-sampling. [Convolution Types Explained: Paul-Louis Prove](https://towardsdatascience.com/types-of-convolutions-in-deep-learning-717013397f4d).  
+
+Remove fully connected hidden layers. Only 1 linear layer on noise for Generator, then reshape into image. Flatten final conv layer, then 1 linear layer into sigmoid for Discriminator.  
+
+Batch Norm for all layers except for Generator output and Discriminator input. [Batch Norm Explained: Ketan Doshi](https://towardsdatascience.com/batch-norm-explained-visually-how-it-works-and-why-neural-networks-need-it-b18919692739).  
+
+RELU for all Generator layers, except Tanh in output. Leaky ReLU for Discriminator.  
 
 # Other
-* [Unsupervised Representation Learning with Deep Convolutional Generative Adversarial Networks: Radford, et al.](https://arxiv.org/pdf/1511.06434)
-* [PyTorch DCGAN Tutorial](https://pytorch.org/tutorials/beginner/dcgan_faces_tutorial.html)
 * [Many Paths to Equilibrium: GANs Do Not Need to Decrease a Divergence at Every Step" Fedus, et at.](https://arxiv.org/pdf/1710.08446)
-* [NIPS 2016 Tutorial: Generative Adversarial Networks: Ian Goodfellow](https://arxiv.org/pdf/1701.00160)
+* [PyTorch DCGAN Tutorial](https://pytorch.org/tutorials/beginner/dcgan_faces_tutorial.html)
+* [DCGANs: Dive into DL](https://d2l.ai/chapter_generative-adversarial-networks/dcgan.html)
