@@ -100,7 +100,7 @@ class GAN(nn.Module):
 
     def optim_step(
         self, xb: torch.Tensor, discriminator_optim: Optimizer, generator_optim: Optimizer
-    ) -> tuple[float, float, torch.Tensor]:
+    ) -> tuple[float, float, float, float, torch.Tensor]:
         # Generate new images.
         z = torch.rand((xb.shape[0], self.latent_dim, 1, 1), dtype=torch.float32, device="cuda")
         generated = self.generator(z)
@@ -128,7 +128,13 @@ class GAN(nn.Module):
         generator_loss.backward()
         generator_optim.step()
 
-        return discriminator_loss.item(), generator_loss.item(), generated.detach().to("cpu")
+        return (
+            discriminator_loss.item(),
+            generator_loss.item(),
+            real_probs.mean().item(),
+            generated_probs.mean().item(),
+            generated.detach().to("cpu"),
+        )
 
     def weight_init(self, module: nn.Module) -> None:
         name = module.__class__.__name__
@@ -158,8 +164,8 @@ if __name__ == "__main__":
         for xb, _ in train_dl:
             xb = xb.to("cuda")
 
-            discriminator_loss, generator_loss, generated = gan.optim_step(
-                xb, discriminator_optim, generator_optim
+            discriminator_loss, generator_loss, mean_real_prob, mean_generated_prob, generated = (
+                gan.optim_step(xb, discriminator_optim, generator_optim)
             )
 
         total_loss = discriminator_loss + generator_loss
@@ -169,6 +175,11 @@ if __name__ == "__main__":
             "generator": generator_loss,
         }
         logger.add_scalars("loss", loss_vals, epoch)
+
+        logger.add_scalars(
+            "probs", {"real": mean_real_prob, "generated": mean_generated_prob}, epoch
+        )
+
         logger.add_images("generated", generated[:24], epoch)
 
         print(f"Epoch {epoch}: loss={total_loss:.6f}")
