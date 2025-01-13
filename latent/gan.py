@@ -22,7 +22,7 @@ class HyperParams(CLIParams):
     batch_size: int = 128
     train_epochs: int = 128
 
-    output_dir = "outputs/gan/test"
+    output_dir: str = "outputs/gan/test"
 
 
 class ConvBlock(nn.Module):
