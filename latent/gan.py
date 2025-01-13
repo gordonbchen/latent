@@ -167,7 +167,7 @@ if __name__ == "__main__":
             "generator": generator_loss,
         }
         logger.add_scalars("loss", loss_vals, epoch)
-        logger.add_images("generated", generated[:10], epoch)
+        logger.add_images("generated", generated[:24], epoch)
 
         print(f"Epoch {epoch}: loss={total_loss:.6f}")
 
