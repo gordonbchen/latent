@@ -18,9 +18,9 @@ class HyperParams(CLIParams):
     relu_leak: float = 0.2
     conv_filters: int = 128
 
-    lr: float = 3e-5  # TODO: tune lr.
+    lr: float = 1e-4
     batch_size: int = 128
-    train_epochs: int = 128
+    train_epochs: int = 64
 
     output_dir: str = "outputs/gan/test"
 
@@ -111,8 +111,10 @@ class GAN(nn.Module):
         real_probs = self.discriminator(xb)
         generated_probs = self.discriminator(generated.detach())
 
-        # TODO: fix NaNs.
-        discriminator_loss = -real_probs.log().mean() - (1 - generated_probs).log().mean()
+        eps = torch.finfo(torch.float32).eps
+        discriminator_loss = (
+            -torch.log(real_probs + eps).mean() - torch.log(1.0 - generated_probs + eps).mean()
+        )
 
         discriminator_loss.backward()
         discriminator_optim.step()
@@ -121,7 +123,7 @@ class GAN(nn.Module):
         generator_optim.zero_grad()
 
         generated_probs = self.discriminator(generated)  # Recalc b/c discriminator was optimized.
-        generator_loss = -generated_probs.log().mean()
+        generator_loss = -torch.log(generated_probs + eps).mean()
 
         generator_loss.backward()
         generator_optim.step()
