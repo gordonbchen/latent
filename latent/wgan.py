@@ -19,7 +19,7 @@ class HyperParams(CLIParams):
     conv_filters: int = 32
     grad_penalty_coeff: float = 10.0
 
-    lr: float = 1e-4
+    lr: float = 3e-4
     batch_size: int = 128
     train_steps: int = 64_000
     critic_steps: int = 5
