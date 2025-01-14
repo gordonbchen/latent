@@ -9,7 +9,7 @@ from torch import nn
 from torch.optim import Adam, Optimizer
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
-from torchvision.datasets import MNIST
+from torchvision.datasets import CIFAR10, MNIST
 from torchvision.transforms import v2
 
 
@@ -28,6 +28,8 @@ class HyperParams(CLIParams):
 
     momentum_beta_1: float = 0.0
     momentum_beta_2: float = 0.9
+
+    cifar_10: bool = False
 
     output_dir: str = "outputs/gan/wgan/test"
 
@@ -166,7 +168,11 @@ if __name__ == "__main__":
     assert (HP.train_steps % HP.critic_steps) == 0
 
     transform = v2.Compose([v2.PILToTensor(), v2.ToDtype(torch.float32, scale=True), v2.Resize(32)])
-    train_ds = MNIST("data", train=True, download=True, transform=transform)
+    if HP.cifar_10:
+        train_ds = CIFAR10("data", train=True, download=True, transform=transform)
+    else:
+        train_ds = MNIST("data", train=True, download=True, transform=transform)
+
     train_dl = DataLoader(
         train_ds,
         batch_size=HP.batch_size,
