@@ -15,14 +15,14 @@ from torchvision.transforms import v2
 
 @dataclass
 class HyperParams(CLIParams):
-    latent_dim: int = 128
+    latent_dim: int = 64
     relu_leak: float = 0.2
-    conv_filters: int = 128
+    conv_filters: int = 32
     grad_penalty_coeff: float = 10.0
 
     lr: float = 1e-4
     batch_size: int = 128
-    train_steps: int = 16_000
+    train_steps: int = 64_000
     critic_steps: int = 5
     log_steps: int = 500
 
