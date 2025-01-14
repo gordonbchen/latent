@@ -3,7 +3,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 import torch
-import torch.linalg as LA
 from cli_params import CLIParams
 from torch import nn
 from torch.optim import Adam, Optimizer
@@ -134,7 +133,7 @@ def optim_step(
     jacobian = torch.autograd.grad(
         outputs=critic(interps).sum(), inputs=interps, create_graph=True
     )[0]
-    grad_norm = LA.vector_norm(jacobian, dim=(1, 2, 3)).mean()  # TODO: flatten then norm.
+    grad_norm = jacobian.view(jacobian.shape[0], -1).norm(dim=-1).mean()
     grad_penalty = HP.grad_penalty_coeff * ((grad_norm - 1.0) ** 2.0)
 
     critic_loss = real_loss + fake_loss + grad_penalty
