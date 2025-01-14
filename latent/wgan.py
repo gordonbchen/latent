@@ -130,7 +130,7 @@ def optim_step(
     interps = (alpha * xb) + ((1 - alpha) * fake_xb.detach())
     interps.requires_grad = True
     jacobian = torch.autograd.grad(
-        outputs=critic(interps).sum(), inputs=interps, retain_graph=True
+        outputs=critic(interps).sum(), inputs=interps, create_graph=True
     )[0]
     grad_norm = LA.vector_norm(jacobian, dim=(1, 2, 3)).mean()  # TODO: flatten then norm.
     grad_penalty = HP.grad_penalty_coeff * ((grad_norm - 1.0) ** 2.0)
