@@ -14,9 +14,9 @@ from torchvision.transforms import v2
 
 @dataclass
 class HyperParams(CLIParams):
-    latent_dim: int = 128
+    latent_dim: int = 64
     relu_leak: float = 0.2
-    conv_filters: int = 128
+    conv_filters: int = 32
 
     lr: float = 1e-4
     batch_size: int = 128
