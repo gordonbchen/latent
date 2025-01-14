@@ -109,7 +109,7 @@ class AutoEncoder(nn.Module):
         return (kl1 + kl2).mean()
 
     def contractive_loss(self, z: torch.Tensor, xb: torch.Tensor) -> torch.Tensor:
-        jacobian = torch.autograd.grad(outputs=z.sum(), inputs=xb, retain_graph=True)[0]
+        jacobian = torch.autograd.grad(outputs=z.sum(), inputs=xb, create_graph=True)[0]
         return (jacobian**2).sum() / xb.shape[0]
 
 
