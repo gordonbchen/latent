@@ -154,7 +154,11 @@ if __name__ == "__main__":
         train_ds, batch_size=HP.batch_size, shuffle=True, num_workers=2, pin_memory=True
     )
 
-    gan = GAN(HP.latent_dim, train_ds[0][0].shape[0], HP.conv_filters, HP.relu_leak).to("cuda")
+    gan = (
+        GAN(HP.latent_dim, train_ds[0][0].shape[0], HP.conv_filters, HP.relu_leak)
+        .to("cuda")
+        .train()
+    )
     discriminator_optim = Adam(gan.discriminator.parameters(), lr=HP.lr, betas=(0.5, 0.999))
     generator_optim = Adam(gan.generator.parameters(), lr=HP.lr, betas=(0.5, 0.999))
 
