@@ -272,3 +272,4 @@ No critic BatchNorm since critic gradients are calculated wrt each individual sa
 * [PyTorch DCGAN Tutorial](https://pytorch.org/tutorials/beginner/dcgan_faces_tutorial.html)
 * [DCGANs: Dive into DL](https://d2l.ai/chapter_generative-adversarial-networks/dcgan.html)
 * [PyTorch-GAN: eriklindernoren](https://github.com/eriklindernoren/PyTorch-GAN)
+* [WGAN-GP: caogang](https://github.com/caogang/wgan-gp)
