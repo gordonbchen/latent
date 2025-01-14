@@ -196,7 +196,79 @@ Batch Norm for all layers except for Generator output and Discriminator input. [
 
 RELU for all Generator layers, except Tanh in output. Leaky ReLU for Discriminator.  
 
-# Other
-* [Many Paths to Equilibrium: GANs Do Not Need to Decrease a Divergence at Every Step" Fedus, et at.](https://arxiv.org/pdf/1710.08446)
+# [Improved Training of Wasserstein GANs](https://arxiv.org/pdf/1704.00028)
+Improves WGAN by enforcing 1-Lipschitz continuity (derivative is bounded, ensures smoothness of critic function) using gradient penalty instead of weight clipping.
+
+## Classic GANs
+$\underset{G}{\min} \ \underset{D}{\max} \ E_{x \sim p_r} [log(D(x))] + E_{z \sim p_z} [log(1 - D(G(z))]$
+
+Better objective for generator is to maximize $E_{z \in p_z} [log(D(G(z)))]$.  
+
+Training discriminator (or critic in WGANs) to optimality, then taking optimization step for generator is equivalent to minimizing $D_{JS}$.  
+
+## WGANs
+$\underset{G}{\min} \ \underset{C}{\max} \ E_{x \sim p_r} [C(x)] - E_{z \sim p_z} [C(G(z))]$
+
+Critic outputs metric, not probability of real/fake. Critic must be 1-Lipschitz continuous for smooth generator loss landscape. Optimizing $G$ for optimal $C$ minimizes Wasserstein distance b/t $p_r$ and $p_g$.
+
+1-Lipschitz continuity enforced through weight-clipping.
+
+Optimal WGAN Critic has gradient norm 1 almost everywhere under $p_r$ and $p_g$.
+
+See [Wasserstein GAN](https://arxiv.org/pdf/1701.07875).
+
+## WGAN-GP
+* Gradient penalty coeff: $\lambda = 10$
+* Critic optimization steps before generator step: $n_{critic} = 5$
+* Learning rate: $\alpha = 0.0001$
+* Momentum: $\beta_1 = 0, \beta_2 = 0.9$
+
+```
+# Critic optim.
+for i in range(n_critic):
+    real = get_real_batch()
+    z = get_latent_batch()
+    fake = generator(z)
+
+    interps = (alpha * real) + ((1 - alpha) * fake)
+    grad_norm = norm(d(C(interps)) \ d(interps)).mean(across samples)
+    grad_penalty = grad_penalty_coeff * ((grad_norm - 1) ** 2)
+
+    L = C(fake) - C(real) + grad_penalty
+
+    Adam optim step
+
+# Generator optim.
+z = get_latent_batch()
+fake = generator(z)
+L = -C(fake)
+
+Adam optim step
+```
+
+Differentiable function is 1-Lipschitz iff grad_norm <= 1. Because it is intractable to constrain the gradient norm everywhere, sample uniformly along lines b/t $p_r$ and $p_g$ and add gradient penalty for those samples.
+
+No critic BatchNorm since critic gradients are calculated wrt each individual sample, and not the entire batch. Use LayerNorm (maybe? Isn't LayerNorm "bad" for CNNs?).
+
+2-sided gradient penalty, gradient norm pushed towards 1.
+
+## Inception Score: [A Simple Explanation of the Inception Score: David Mack](https://medium.com/octavian-ai/a-simple-explanation-of-the-inception-score-372dff6a8c7a)
+* Inception score to evaluate generated image quality.
+* Ideal generator model
+    * Class probability of individual images are very sharp (peak at one class)
+    * Sum of class probs of all images gives uniform distribution (diverse outputs)
+    * $D_{KL}$ of class probs of individual image, sum of class probs will be very high
+* Inception score: $\exp(E_x [D_{KL}(p(y|x), p(y))])$
+
+## Character GAN Language Model
+* Generator: 1D CNN, latent velctor -> 32 1-hot char vectors, output softmax
+* Critic: 1D CNN
+* Argmax (deterministic, no random sampling) to decode generator output -> chars
+
+# Other Resources
+* [Many Paths to Equilibrium: GANs Do Not Need to Decrease a Divergence at Every Step" Fedus, et at.](https://arxiv.org/pdf/1710.08446) 
+
+# Reference Implementations
 * [PyTorch DCGAN Tutorial](https://pytorch.org/tutorials/beginner/dcgan_faces_tutorial.html)
 * [DCGANs: Dive into DL](https://d2l.ai/chapter_generative-adversarial-networks/dcgan.html)
+* [PyTorch-GAN: eriklindernoren](https://github.com/eriklindernoren/PyTorch-GAN)
